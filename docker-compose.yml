@@ -1,0 +1,129 @@
+services:
+  # MySQL Master Node
+  mysql_master:
+    image: mysql:8.0
+    container_name: mysql_master
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE: products_db
+      MYSQL_USER: app_user
+      MYSQL_PASSWORD: app_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./db/master-init.sql:/docker-entrypoint-initdb.d/init.sql
+      - mysql_master_data:/var/lib/mysql
+      - ./db/master.conf:/etc/mysql/conf.d/master.conf
+    command: >
+      --server-id=1
+      --log-bin=mysql-bin
+      --binlog-format=ROW
+    networks:
+      - app_network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-proot123"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  api_node_1:
+    build:
+      context: ./app
+    container_name: api_node_1
+    environment:
+      PORT: 3000
+      SERVER_ID: Node_1
+      MASTER_HOST: mysql_master
+      MASTER_PORT: 3306
+      SLAVE_HOST: mysql_slave
+      SLAVE_PORT: 3306
+      DB_USER: app_user
+      DB_PASSWORD: app_password
+      DB_NAME: products_db
+    ports:
+      - "3001:3000"
+    depends_on:
+      mysql_master:
+        condition: service_healthy
+      mysql_slave:
+        condition: service_healthy
+    networks:
+      - app_network
+
+  api_node_2:
+    build:
+      context: ./app
+    container_name: api_node_2
+    environment:
+      PORT: 3000
+      SERVER_ID: Node_2
+      MASTER_HOST: mysql_master
+      MASTER_PORT: 3306
+      SLAVE_HOST: mysql_slave
+      SLAVE_PORT: 3306
+      DB_USER: app_user
+      DB_PASSWORD: app_password
+      DB_NAME: products_db
+    ports:
+      - "3002:3000"
+    depends_on:
+      mysql_master:
+        condition: service_healthy
+      mysql_slave:
+        condition: service_healthy
+    networks:
+      - app_network
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: api_gateway
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api_node_1
+      - api_node_2
+    networks:
+      - app_network
+
+  # MySQL Slave Node
+  mysql_slave:
+    image: mysql:8.0
+    container_name: mysql_slave
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE: products_db
+      MYSQL_USER: app_user
+      MYSQL_PASSWORD: app_password
+    ports:
+      - "3307:3306"
+    volumes:
+      - ./db/slave-init.sql:/docker-entrypoint-initdb.d/init.sql
+      - mysql_slave_data:/var/lib/mysql
+      - ./db/slave.conf:/etc/mysql/conf.d/slave.conf
+    command: >
+      --server-id=2
+      --relay-log=mysql-relay-bin
+      --relay-log-index=mysql-relay-bin.index
+      --read-only=ON
+    networks:
+      - app_network
+    depends_on:
+      mysql_master:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-proot123"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+volumes:
+  mysql_master_data:
+  mysql_slave_data:
+
+networks:
+  app_network:
+    driver: bridge

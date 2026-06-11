@@ -1,0 +1,6 @@
+node_modules/
+app/node_modules/
+23127389/
+Assignment-2---Scalable-System-Design-Implementation/
+*.pyc
+__pycache__/
